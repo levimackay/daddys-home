@@ -1,0 +1,220 @@
+#!/bin/zsh
+# daddyshome - spin up the workshop.
+#
+#   daddyshome               launch all bays
+#   daddyshome --quiet       no voice
+#   daddyshome --dry-run     print what would launch, open nothing
+#   daddyshome --edit        open the bay config
+#   daddyshome --setup-mail  store the Gmail app password in the Keychain
+#
+# Bays live in ~/.config/daddyshome/bays.conf
+#
+# Windows tile to fill the screen: 4 bays become a 2x2 grid, and other
+# counts pick the nearest square-ish arrangement.
+
+emulate -L zsh
+setopt no_nomatch extendedglob
+
+CONFIG="${DADDYSHOME_CONFIG:-$HOME/.config/daddyshome/bays.conf}"
+VOICE="${DADDYSHOME_VOICE:-Daniel}"
+RATE="${DADDYSHOME_RATE:-172}"
+EMAIL_FILE="$HOME/.config/daddyshome/email"
+MAIL_ACCOUNT="${DADDYSHOME_EMAIL:-$( [[ -r "$EMAIL_FILE" ]] && tr -d ' \t\r\n' < "$EMAIL_FILE" )}"
+RUNDIR="${TMPDIR:-/tmp}/daddyshome"
+GAP="${DADDYSHOME_GAP:-8}"     # pixels between tiled windows
+
+QUIET=0
+DRYRUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --quiet|-q)   QUIET=1 ;;
+    --dry-run|-n) DRYRUN=1 ;;
+    --edit|-e)    ${EDITOR:-open -t} "$CONFIG"; exit 0 ;;
+    --setup-mail)
+      # security's prompt needs a real TTY, so run it in a fresh Terminal window.
+      osascript >/dev/null <<MAILSETUP
+tell application "Terminal"
+  activate
+  do script "clear; echo 'daddyshome - Gmail app password setup'; echo; echo 'Paste your app password from https://myaccount.google.com/apppasswords'; echo 'Typing is hidden. You will be asked twice.'; echo; security delete-generic-password -a ${MAIL_ACCOUNT} -s daddyshome-gmail >/dev/null 2>&1; security add-generic-password -a ${MAIL_ACCOUNT} -s daddyshome-gmail -w && echo && echo 'Stored in Keychain. You can close this window.' || echo 'Failed - try again.'"
+end tell
+MAILSETUP
+      print "Opened a Terminal window for the password prompt."
+      exit 0 ;;
+    --help|-h)    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) print -u2 "daddyshome: unknown option '$arg' (try --help)"; exit 2 ;;
+  esac
+done
+
+[[ -r "$CONFIG" ]] || { print -u2 "daddyshome: no config at $CONFIG"; exit 1 }
+
+# --- colors ---------------------------------------------------------------
+if [[ -t 1 ]]; then
+  C_DIM=$'\e[2m'; C_CY=$'\e[38;5;51m'; C_GD=$'\e[38;5;220m'
+  C_RD=$'\e[38;5;203m'; C_GN=$'\e[38;5;83m'; C_B=$'\e[1m'; C_0=$'\e[0m'
+else
+  C_DIM=; C_CY=; C_GD=; C_RD=; C_GN=; C_B=; C_0=
+fi
+
+# --- voice ----------------------------------------------------------------
+# JARVIS is unhurried and never exclaims. Short clauses, terminal "sir".
+hour=$(date +%-H)
+if   (( hour < 12 )); then TIMEGREET="Good morning, sir."
+elif (( hour < 18 )); then TIMEGREET="Good afternoon, sir."
+else                       TIMEGREET="Good evening, sir."
+fi
+
+SPEAK_PID=
+# Speak without blocking, but never let two lines overlap: each call waits
+# for the previous one to finish speaking first.
+speak_bg() {
+  (( QUIET )) && return
+  local line="$1"
+  { [[ -n "$SPEAK_PID" ]] && wait $SPEAK_PID 2>/dev/null
+    say -v "$VOICE" -r "$RATE" "$line" &>/dev/null } &
+  SPEAK_PID=$!
+}
+
+# --- banner ---------------------------------------------------------------
+print ""
+print -r -- "${C_GD}${C_B}    ___       _   _      _    _       _  _                 ${C_0}"
+print -r -- "${C_GD}${C_B}   |   \\ __ _| |_| |__ _( )__ | |_  __| || |___ _ __  ___  ${C_0}"
+print -r -- "${C_GD}${C_B}   | |) / _\` | / /  _\` |/(_-< | ' \\/ _\` || / _ \\ '  \\/ -_) ${C_0}"
+print -r -- "${C_GD}${C_B}   |___/\\__,_|_\\_\\__,_|  /__/ |_||_\\__,_||_\\___/_|_|_\\___| ${C_0}"
+print ""
+print -r -- "${C_DIM}   ──────────────────────────────────────────────────────────${C_0}"
+print ""
+
+speak_bg "$TIMEGREET Welcome home. All systems are online and functioning normally."
+
+boot() { print -r -- "   ${C_CY}▸${C_0} $1 ${C_DIM}...${C_0} ${C_GN}$2${C_0}"; sleep 0.2 }
+
+boot "arc reactor          ${C_DIM}output steady${C_0}" "NOMINAL"
+boot "workshop systems     ${C_DIM}environment stable${C_0}" "ONLINE"
+boot "diagnostic sweep     ${C_DIM}no anomalies detected${C_0}" "CLEAR"
+boot "bay manifest         ${C_DIM}${CONFIG/#$HOME/~}${C_0}" "LOADED"
+print ""
+
+# --- parse config ---------------------------------------------------------
+typeset -a LABELS DIRS PROMPTS
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" == \#* || -z "${line//[[:space:]]/}" ]] && continue
+  label="${line%%::*}";  rest="${line#*::}"
+  dir="${rest%%::*}"
+  if [[ "$rest" == *::* ]]; then prompt="${rest#*::}"; else prompt=""; fi
+  label="${${label##[[:space:]]##}%%[[:space:]]##}"
+  dir="${${dir##[[:space:]]##}%%[[:space:]]##}"
+  prompt="${${prompt##[[:space:]]##}%%[[:space:]]##}"
+  dir="${dir/#\~/$HOME}"
+  [[ -z "$dir" ]] && continue
+  LABELS+=("$label"); DIRS+=("$dir"); PROMPTS+=("$prompt")
+done < "$CONFIG"
+
+N=${#DIRS}
+(( N )) || { print -u2 "daddyshome: no bays defined in $CONFIG"; exit 1 }
+
+# --- screen geometry ------------------------------------------------------
+# NSScreen.visibleFrame excludes the menu bar and Dock. Cocoa's origin is
+# bottom-left; AppleScript window bounds are top-left, so flip the y axis.
+FRAME=$(osascript -l JavaScript 2>/dev/null <<'JXA'
+ObjC.import('AppKit');
+const s = $.NSScreen.screens.objectAtIndex(0);
+const vf = s.visibleFrame, f = s.frame;
+const top = f.size.height - (vf.origin.y + vf.size.height);
+[Math.round(vf.origin.x), Math.round(top),
+ Math.round(vf.origin.x + vf.size.width), Math.round(top + vf.size.height)].join(' ');
+JXA
+)
+if [[ "$FRAME" == [0-9]*' '[0-9]*' '[0-9]*' '[0-9]* ]]; then
+  read -r SL ST SR SB <<< "$FRAME"
+else
+  # Fall back to the desktop bounds with a conservative menu-bar inset.
+  read -r SL ST SR SB <<< "$(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>/dev/null | tr -d ',')"
+  : ${SL:=0} ${ST:=0} ${SR:=1440} ${SB:=900}
+  ST=$(( ST + 33 ))
+fi
+
+# Nearest square-ish grid: 4 bays -> 2x2, 6 -> 3x2, 2 -> 2x1.
+COLS=1; while (( COLS * COLS < N )); do (( COLS++ )); done
+ROWS=$(( (N + COLS - 1) / COLS ))
+CELL_W=$(( (SR - SL) / COLS ))
+CELL_H=$(( (SB - ST) / ROWS ))
+
+print -r -- "   ${C_DIM}tiling ${N} bays into a ${COLS}x${ROWS} grid on $(( SR - SL ))x$(( SB - ST ))${C_0}"
+print ""
+
+# --- prepare run dir ------------------------------------------------------
+rm -rf "$RUNDIR" 2>/dev/null
+mkdir -p "$RUNDIR" || { print -u2 "daddyshome: cannot create $RUNDIR"; exit 1 }
+chmod 700 "$RUNDIR"
+
+# --- launch ---------------------------------------------------------------
+failed=0
+for i in {1..$N}; do
+  label="${LABELS[$i]}"; dir="${DIRS[$i]}"; prompt="${PROMPTS[$i]}"
+
+  if [[ ! -d "$dir" ]]; then
+    print -r -- "   ${C_RD}✗${C_0} ${C_B}${label}${C_0} ${C_DIM}— no such directory: ${dir/#$HOME/~}${C_0}"
+    failed=1
+    continue
+  fi
+
+  launcher="$RUNDIR/bay${i}.zsh"
+  {
+    print -r -- '#!/bin/zsh'
+    print -r -- "cd ${(q)dir} || exit 1"
+    print -r -- "printf '\\033]0;%s\\007' ${(q)label}"
+    if [[ -n "$prompt" ]]; then
+      printf '%s' "$prompt" > "$RUNDIR/bay${i}.prompt"
+      chmod 600 "$RUNDIR/bay${i}.prompt"
+      print -r -- "exec claude \"\$(cat ${(q)RUNDIR}/bay${i}.prompt)\""
+    else
+      print -r -- "exec claude"
+    fi
+  } > "$launcher"
+  chmod 700 "$launcher"
+
+  # Fill the grid left-to-right, top-to-bottom.
+  col=$(( (i - 1) % COLS ))
+  row=$(( (i - 1) / COLS ))
+  x1=$(( SL + col * CELL_W + GAP ))
+  y1=$(( ST + row * CELL_H + GAP ))
+  x2=$(( SL + (col + 1) * CELL_W - GAP ))
+  y2=$(( ST + (row + 1) * CELL_H - GAP ))
+
+  if (( DRYRUN )); then
+    print -r -- "   ${C_GD}◆${C_0} ${C_B}${label}${C_0} ${C_DIM}→ ${dir/#$HOME/~}  [r${row}c${col}] {${x1},${y1},${x2},${y2}}${C_0}"
+    continue
+  fi
+
+  osascript >/dev/null 2>&1 <<APPLESCRIPT
+tell application "Terminal"
+  activate
+  do script "zsh ${launcher}"
+  delay 0.25
+  try
+    set bounds of front window to {${x1}, ${y1}, ${x2}, ${y2}}
+  end try
+end tell
+APPLESCRIPT
+
+  if (( $? == 0 )); then
+    print -r -- "   ${C_GD}◆${C_0} bay ${i} online ${C_DIM}—${C_0} ${C_B}${label}${C_0} ${C_DIM}${dir/#$HOME/~}${C_0}"
+  else
+    print -r -- "   ${C_RD}✗${C_0} bay ${i} failed to open ${C_DIM}—${C_0} ${C_B}${label}${C_0}"
+    failed=1
+  fi
+  sleep 0.55
+done
+
+print ""
+if (( DRYRUN )); then
+  print -r -- "   ${C_DIM}dry run — nothing opened${C_0}"
+elif (( failed )); then
+  print -r -- "   ${C_RD}${C_B}Workshop online, sir. One or more bays reported a fault.${C_0}"
+  speak_bg "Workshop online, sir. One or more bays reported a fault."
+else
+  print -r -- "   ${C_GD}${C_B}The workshop is yours, sir.${C_0}"
+  print -r -- "   ${C_DIM}As always, a great pleasure watching you work.${C_0}"
+  speak_bg "The workshop is yours, sir. As always, a great pleasure watching you work."
+fi
+print ""

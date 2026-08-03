@@ -1,0 +1,18 @@
+# daddyshome bays
+#
+# One bay per line:  LABEL :: DIRECTORY :: PROMPT
+#
+# Leave PROMPT empty for a plain interactive session.
+# Lines starting with # are ignored. Blank lines are ignored.
+# Bays launch in order and tile across your screen, left to right, top to
+# bottom. Four bays gives you a 2x2 grid.
+#
+# Copy this file to ~/.config/daddyshome/bays.conf and edit it.
+
+PROJECT :: ~/code/my-project ::
+
+REVIEW :: ~/code/my-project :: Read the last 10 commits and the current diff, then tell me what changed, what looks risky, and what still needs tests. Be concise and skip anything that looks fine.
+
+INBOX :: ~/.local/share/daddyshome/inbox-brief :: Run `python3 fetch_inbox.py` and brief me on my email. Group what you find into: (1) needs a reply from me today, (2) anything time sensitive, (3) everything else worth knowing, (4) noise I can ignore. Quote only what is actually in the output. If the fetch fails, show me the error and stop.
+
+STANDUP :: ~/code :: Give me a standup on my own work. For each git repo one level under this directory, check `git status --short` for uncommitted work and `git log --oneline -1` for the last commit. Then tell me: (1) what I touched in the last 3 days, (2) uncommitted work sitting around that might get lost, (3) branches with unpushed commits. Group by repo and skip repos with nothing going on.

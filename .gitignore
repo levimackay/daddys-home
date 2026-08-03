@@ -1,0 +1,8 @@
+# Never commit a real bay config: it contains local paths and personal prompts.
+bays.conf
+email
+*.prompt
+
+.DS_Store
+__pycache__/
+*.pyc
