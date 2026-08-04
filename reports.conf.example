@@ -1,0 +1,21 @@
+# daddyshome reports
+#
+# Same format as bays.conf:  LABEL :: DIRECTORY :: PROMPT
+#
+# Each report runs headless before the windows open, in its own directory,
+# in parallel with the others. The prompt is appended with a strict JSON
+# contract; a report that answers with anything else is marked unavailable
+# rather than guessed at.
+#
+# Headless sessions cannot ask for permission, so anything a report needs to
+# run must be on the ALLOWED_TOOLS list in brief.py. That list is read-only on
+# purpose. If a report needs something more, prefer writing a small read-only
+# helper script and allowing that, rather than widening the list.
+#
+# Copy this file to ~/.config/daddyshome/reports.conf and edit it.
+
+PROJECT :: ~/code/my-project :: Summarise the state of this project. Read the README and run `git log --oneline --since="7 days ago"`. Chart commits per author over the last week. In sections, list what changed and anything that looks unfinished. Report only what you actually read.
+
+INBOX :: ~/.local/share/daddyshome :: Run `python3 inbox-brief/fetch_inbox.py --days 3`. From its output only, categorise every message into: needs a reply from me, worth knowing, and noise. Chart the counts per category. In sections, name who is waiting on a reply and what they asked. Quote only what appears in the command output. If the command fails, put the error in a section and return empty charts.
+
+STANDUP :: ~/.local/share/daddyshome :: Run `python3 repo_survey.py ~/code --days 7`. From that table only: chart commits per repo over the last 7 days, including only repos with at least one commit. In stats, give the number of repos touched and the number with uncommitted files. In sections, name the repos carrying uncommitted work and any with unpushed commits. Treat a dash in the unpushed column as "no upstream set", not as zero. Report only what the table actually shows.

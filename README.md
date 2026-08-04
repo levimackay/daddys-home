@@ -12,11 +12,40 @@ Named after the Iron Man scene. The voice leans that direction too.
 
 1. Prints a banner and a short diagnostic sequence
 2. Speaks a greeting that changes based on the time of day
-3. Reads your bay list from a config file
-4. Opens one terminal window per bay, tiled to fill the screen
-5. Starts a session in each, optionally with a prompt already submitted
+3. Runs your reports headlessly and builds one dashboard
+4. Opens the dashboard and reads the summary out loud
+5. Opens one terminal window per bay, tiled to fill the screen
+6. Starts a session in each, optionally with a prompt already submitted
 
 Bays that have a prompt come back with an answer waiting. Bays that do not are just a normal session sitting in the right folder.
+
+## The briefing
+
+Reports are defined in `~/.config/daddyshome/reports.conf`, same three field format as bays. Each one runs in its own directory, in parallel, before any window opens. The results become a single dashboard with charts, stat tiles and alerts, plus a short spoken summary that gets read to you while you look at it.
+
+Reports have to answer with a strict JSON contract. Anything else and the report is marked unavailable rather than guessed at. Every prompt tells the model to report only what it actually read or ran, so a failed report says so instead of inventing numbers.
+
+The briefing costs real tokens, roughly a dollar or two a run depending on how much your reports read. If you just want the windows:
+
+```sh
+daddyshome --no-brief
+```
+
+Or the report without the windows:
+
+```sh
+daddyshome --brief-only
+```
+
+### Permissions
+
+A headless session cannot stop and ask you to approve a command, so anything a report needs has to be pre-approved in the `ALLOWED_TOOLS` list in `brief.py`. That list is deliberately read only: git inspection, file reading, and two helper scripts.
+
+If a report needs something not on the list, write a small read only helper and allow that instead of widening the list. That is what `repo_survey.py` is. Surveying repos needs `cd repo && git log`, which is a compound command that no narrow permission pattern will match, and the alternative was allowing all of `git`, including `push` and `reset`. A helper script that only ever runs read only subcommands was the safer trade.
+
+### The charts
+
+Single hue, direct labelled, with a table view under each one. Status is never carried by colour alone: every alert ships a distinct glyph and a written level, because the warning and serious colours sit close enough in hue that a colourblind reader could not otherwise tell them apart. Light and dark are both selected rather than flipped.
 
 ## Install
 
@@ -60,6 +89,8 @@ Run `daddyshome --edit` to open the file.
 |:--|:--|
 | `--dry-run` | Shows every bay and the exact window coordinates without opening anything |
 | `--quiet` | Skips the voice |
+| `--no-brief` | Skips the reports, opens the bays straight away |
+| `--brief-only` | Builds the dashboard and reads it, opens no bays |
 | `--edit` | Opens the bay config |
 | `--setup-mail` | Stores a Gmail app password in the Keychain |
 | `--help` | Usage |

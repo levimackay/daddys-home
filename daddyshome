@@ -5,6 +5,8 @@
 #   daddyshome --quiet       no voice
 #   daddyshome --dry-run     print what would launch, open nothing
 #   daddyshome --edit        open the bay config
+#   daddyshome --no-brief    skip the briefing, just open the bays
+#   daddyshome --brief-only  briefing and dashboard only, open no bays
 #   daddyshome --setup-mail  store the Gmail app password in the Keychain
 #
 # Bays live in ~/.config/daddyshome/bays.conf
@@ -23,12 +25,20 @@ MAIL_ACCOUNT="${DADDYSHOME_EMAIL:-$( [[ -r "$EMAIL_FILE" ]] && tr -d ' \t\r\n' <
 RUNDIR="${TMPDIR:-/tmp}/daddyshome"
 GAP="${DADDYSHOME_GAP:-8}"     # pixels between tiled windows
 
+BRIEF_SCRIPT="${DADDYSHOME_BRIEF:-$HOME/.local/share/daddyshome/brief.py}"
+BRIEF_OUT="$HOME/.local/share/daddyshome/briefing.html"
+REPORTS="$HOME/.config/daddyshome/reports.conf"
+
 QUIET=0
 DRYRUN=0
+NOBRIEF=0
+BRIEFONLY=0
 for arg in "$@"; do
   case "$arg" in
     --quiet|-q)   QUIET=1 ;;
     --dry-run|-n) DRYRUN=1 ;;
+    --no-brief)   NOBRIEF=1 ;;
+    --brief-only) BRIEFONLY=1 ;;
     --edit|-e)    ${EDITOR:-open -t} "$CONFIG"; exit 0 ;;
     --setup-mail)
       # security's prompt needs a real TTY, so run it in a fresh Terminal window.
@@ -40,7 +50,7 @@ end tell
 MAILSETUP
       print "Opened a Terminal window for the password prompt."
       exit 0 ;;
-    --help|-h)    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h)    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) print -u2 "daddyshome: unknown option '$arg' (try --help)"; exit 2 ;;
   esac
 done
@@ -141,6 +151,41 @@ CELL_H=$(( (SB - ST) / ROWS ))
 
 print -r -- "   ${C_DIM}tiling ${N} bays into a ${COLS}x${ROWS} grid on $(( SR - SL ))x$(( SB - ST ))${C_0}"
 print ""
+
+# --- briefing -------------------------------------------------------------
+# Reports run headless first, then the dashboard opens and the summary is
+# read aloud. Only after that do the interactive bays appear.
+run_briefing() {
+  [[ -r "$REPORTS" ]] || { print -r -- "   ${C_DIM}no reports.conf, skipping the briefing${C_0}"; return 1 }
+  [[ -r "$BRIEF_SCRIPT" ]] || { print -r -- "   ${C_RD}✗${C_0} brief.py not found at ${BRIEF_SCRIPT/#$HOME/~}"; return 1 }
+
+  print -r -- "   ${C_CY}▸${C_0} compiling briefing ${C_DIM}(running reports, this takes a moment)${C_0}"
+
+  local spoken
+  if ! spoken=$(python3 "$BRIEF_SCRIPT" --out "$BRIEF_OUT" --config "$REPORTS" 2>/dev/null); then
+    print -r -- "   ${C_RD}✗${C_0} the briefing failed to build"
+    return 1
+  fi
+
+  [[ -s "$BRIEF_OUT" ]] && open "$BRIEF_OUT" 2>/dev/null
+  print -r -- "   ${C_GD}◆${C_0} briefing ready ${C_DIM}—${C_0} ${BRIEF_OUT/#$HOME/~}"
+  print ""
+  if [[ -n "$spoken" ]]; then
+    print -r -- "   ${C_DIM}${spoken}${C_0}"
+    print ""
+    speak_bg "$spoken"
+  fi
+  return 0
+}
+
+if (( ! DRYRUN && ! NOBRIEF )); then
+  run_briefing
+fi
+
+if (( BRIEFONLY )); then
+  (( DRYRUN )) && print -r -- "   ${C_DIM}dry run — nothing opened${C_0}"
+  exit 0
+fi
 
 # --- prepare run dir ------------------------------------------------------
 rm -rf "$RUNDIR" 2>/dev/null
