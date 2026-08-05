@@ -50,7 +50,7 @@ Single hue, direct labelled, with a table view under each one. Status is never c
 ## Install
 
 ```sh
-git clone https://github.com/levibmackay/daddys-home.git
+git clone https://github.com/levimackay/daddys-home.git
 cd daddys-home
 ./install.sh
 ```
