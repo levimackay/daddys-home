@@ -147,4 +147,3 @@ Daniel is the closest thing macOS ships to the voice I was going for. If you go 
 MIT
 
 **Last updated:** 2026-08-18 08:59 MDT
-
